@@ -22,6 +22,7 @@ class syntax_plugin_bureaucracy extends DokuWiki_Syntax_Plugin {
     var $patterns = array();
     var $values = array();
     var $functions = array();
+    var $noreplace = null;
 
     /**
      * Prepare some replacements
@@ -457,6 +458,18 @@ class syntax_plugin_bureaucracy extends DokuWiki_Syntax_Plugin {
     }
 
     /**
+     * Save content in <noreplace> tags into $this->noreplace
+     *
+     * @param string $input    The text to work on
+     */
+    protected function noreplace_save($input) {
+        $pattern = '/<noreplace>(.*?)<\/noreplace>/is';
+        //save content of <noreplace> tags
+        preg_match_all($pattern, $input, $matches);
+        $this->noreplace = $matches[1];
+    }
+
+    /**
      * Apply replacement patterns and values as prepared earlier
      * (disable $strftime to prevent double replacements with default strftime() replacements in nstemplate)
      *
@@ -465,6 +478,11 @@ class syntax_plugin_bureaucracy extends DokuWiki_Syntax_Plugin {
      * @return string processed text
      */
     function replace($input, $strftime = true) {
+        //in helper_plugin_struct_field::setVal $input can be an array
+        //just return $input in that case
+        if (!is_string($input)) return $input;
+        if (is_null($this->noreplace)) $this->noreplace_save($input);
+
         foreach ($this->values as $label => $value) {
             $pattern = $this->patterns[$label];
             if (is_callable($value)) {
@@ -497,11 +515,19 @@ class syntax_plugin_bureaucracy extends DokuWiki_Syntax_Plugin {
         //run functions
         foreach ($this->functions as $name => $callback) {
             $pattern = '/@' . preg_quote($name) . '\((.*?)\)@/';
-            if (is_callable($callback)) {
-                $input = preg_replace_callback($pattern, function ($matches) use ($callback) {
+            if(is_callable($callback)) {
+                $input = preg_replace_callback(
+                    $pattern, function ($matches) use ($callback) {
                     return call_user_func($callback, $matches[1]);
-                }, $input);
+                }, $input
+                );
             }
+        }
+
+        //replace <noreplace> tags with their original content
+        $pattern = '/<noreplace>.*?<\/noreplace>/is';
+        if (is_array($this->noreplace)) foreach ($this->noreplace as $nr) {
+            $input = preg_replace($pattern, $nr, $input, 1);
         }
 
         return $input;
